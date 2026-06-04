@@ -1,9 +1,8 @@
-app_name = "recon_tool"
-app_title = "Recon Tool"
-app_publisher = "recon_tool"
-app_description = "recon_tool"
-app_email = "roshnisompura0@gmail.com"
-app_license = "mit"
+app_name         = "recon_tool"
+app_title        = "Recon Tool"
+app_publisher    = "Your Company"
+app_description  = "All-in-one Bank Reconciliation for ERPNext 15"
+app_version      = "0.0.1"
 
 # Apps
 # ------------------

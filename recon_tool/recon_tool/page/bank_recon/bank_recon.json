@@ -1,0 +1,19 @@
+{
+ "content": null,
+ "creation": "2026-05-16 11:03:22.542103",
+ "docstatus": 0,
+ "doctype": "Page",
+ "idx": 0,
+ "modified": "2026-05-16 11:03:22.542103",
+ "modified_by": "Administrator",
+ "module": "Recon Tool",
+ "name": "bank-recon",
+ "owner": "Administrator",
+ "page_name": "bank-recon",
+ "roles": [],
+ "script": null,
+ "standard": "Yes",
+ "style": null,
+ "system_page": 0,
+ "title": "Bank Reconciliation"
+}
