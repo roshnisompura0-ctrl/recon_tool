@@ -15,6 +15,7 @@
 }
 
 .rt-filterbar,
+.rt-balance-card,
 .rt-summary,
 .rt-table-card,
 .rt-context,
@@ -29,8 +30,8 @@
 	position: sticky;
 	top: 48px;
 	z-index: 4;
-	display: grid;
-	grid-template-columns: 1.1fr 1.2fr 132px 132px 128px minmax(180px, 1fr) 78px;
+	display: flex;
+	flex-wrap: wrap;
 	gap: 10px;
 	align-items: end;
 	padding: 12px;
@@ -40,8 +41,19 @@
 .rt-control {
 	display: flex;
 	flex-direction: column;
+	flex: 1 1 132px;
 	gap: 5px;
 	min-width: 0;
+}
+
+.rt-control-wide {
+	flex-basis: 180px;
+	flex-grow: 1.25;
+}
+
+.rt-search-control {
+	flex-basis: 240px;
+	flex-grow: 1.6;
 }
 
 .rt-control label {
@@ -49,6 +61,8 @@
 	font-size: 11px;
 	font-weight: 600;
 	color: var(--text-muted);
+	line-height: 1.2;
+	white-space: nowrap;
 }
 
 .rt-control .control-input,
@@ -57,6 +71,7 @@
 .rt-control input,
 .rt-control select,
 .rt-control textarea {
+	width: 100%;
 	min-height: 32px;
 	border-radius: 6px;
 	font-size: 12px;
@@ -83,10 +98,59 @@
 	border-radius: 6px;
 }
 
+.rt-fetch-actions {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	flex: 0 0 168px;
+	gap: 8px;
+	align-items: end;
+}
+
+.rt-fetch-actions .btn {
+	min-height: 32px;
+	width: 100%;
+	white-space: nowrap;
+}
+
+.rt-balance-card {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	overflow: hidden;
+}
+
+.rt-balance-card > div {
+	padding: 18px 20px;
+	border-right: 1px solid var(--border-color);
+	text-align: center;
+}
+
+.rt-balance-card > div:last-child {
+	border-right: 0;
+}
+
+.rt-balance-card span {
+	display: block;
+	font-size: 12px;
+	color: var(--text-muted);
+}
+
+.rt-balance-card strong {
+	display: block;
+	margin-top: 8px;
+	font-size: 22px;
+	font-weight: 800;
+	color: var(--text-color);
+}
+
+.rt-difference-ok {
+	color: var(--green-600) !important;
+}
+
+.rt-difference-alert {
+	color: var(--red-600) !important;
+}
+
 .rt-summary {
-	position: sticky;
-	top: 121px;
-	z-index: 3;
 	display: grid;
 	grid-template-columns: repeat(4, minmax(0, 1fr));
 	overflow: hidden;
@@ -648,17 +712,26 @@
 }
 
 @media (max-width: 900px) {
-	.rt-filterbar {
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-	}
-
-	.rt-search-control,
+	.rt-control,
 	.rt-control-wide {
-		grid-column: auto;
+		flex-basis: calc(50% - 5px);
 	}
 
+	.rt-search-control {
+		flex-basis: 100%;
+	}
+
+	.rt-fetch-actions {
+		flex: 1 1 100%;
+	}
+
+	.rt-balance-card,
 	.rt-summary {
 		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+
+	.rt-balance-card > div:nth-child(2) {
+		border-right: 0;
 	}
 
 	.rt-table-scroll {
@@ -681,11 +754,23 @@
 	}
 
 	.rt-filterbar,
+	.rt-balance-card,
 	.rt-form-row,
 	.rt-voucher-types,
 	.rt-tabs,
 	.rt-split-row {
 		grid-template-columns: 1fr;
+	}
+
+	.rt-filterbar {
+		display: grid;
+	}
+
+	.rt-control,
+	.rt-control-wide,
+	.rt-search-control,
+	.rt-fetch-actions {
+		flex-basis: auto;
 	}
 
 	.rt-table-scroll {
@@ -712,9 +797,23 @@
 		flex-direction: column;
 	}
 
-	.rt-toolbar-actions {
+	.rt-toolbar-actions,
+	.rt-fetch-actions {
 		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+
+	.rt-toolbar-actions {
 		grid-template-columns: repeat(3, minmax(0, 1fr));
+	}
+
+	.rt-balance-card > div {
+		border-right: 0;
+		border-bottom: 1px solid var(--border-color);
+	}
+
+	.rt-balance-card > div:last-child {
+		border-bottom: 0;
 	}
 
 	.rt-panel-head input {

@@ -2,6 +2,7 @@ import json
 import re
 
 import frappe
+import requests
 from frappe import _
 from frappe.utils import add_days, cint, flt, getdate
 
@@ -61,6 +62,28 @@ def _transaction_amount(transaction):
 
 def _transaction_direction(transaction):
 	return "Receive" if flt(transaction.get("deposit")) > 0 else "Pay"
+
+
+def _gl_balance(account, to_date=None, before_date=None):
+	_check_perm("GL Entry", "read")
+	values = {"account": account}
+	where = ["account = %(account)s", "is_cancelled = 0"]
+	if before_date:
+		values["before_date"] = before_date
+		where.append("posting_date < %(before_date)s")
+	elif to_date:
+		values["to_date"] = to_date
+		where.append("posting_date <= %(to_date)s")
+	row = frappe.db.sql(
+		f"""
+		SELECT COALESCE(SUM(debit - credit), 0) AS balance
+		FROM `tabGL Entry`
+		WHERE {' AND '.join(where)}
+		""",
+		values,
+		as_dict=True,
+	)[0]
+	return flt(row.balance)
 
 
 def _normalize(text):
@@ -386,6 +409,114 @@ def get_bank_transactions(
 		"unallocated_total": flt(summary.unallocated_total),
 		"unmatched_count": cint(summary.unmatched_count),
 	}
+
+
+@frappe.whitelist()
+def get_balance_summary(bank_account, from_date, to_date, statement_closing_balance=None):
+	ctx = _bank_account_context(bank_account)
+	opening_balance = _gl_balance(ctx.account, before_date=from_date)
+	erp_closing_balance = _gl_balance(ctx.account, to_date=to_date)
+	statement_closing_balance = flt(statement_closing_balance) if statement_closing_balance not in (None, "") else None
+	difference = statement_closing_balance - erp_closing_balance if statement_closing_balance is not None else None
+	return {
+		"bank_account": ctx.name,
+		"gl_account": ctx.account,
+		"account_opening_balance": opening_balance,
+		"erp_closing_balance": erp_closing_balance,
+		"statement_closing_balance": statement_closing_balance,
+		"difference": difference,
+	}
+
+
+def _bank_transaction_exists(bank_account, transaction_id=None, reference_number=None, date=None, deposit=0, withdrawal=0):
+	filters = {"bank_account": bank_account}
+	if transaction_id:
+		filters["transaction_id"] = transaction_id
+		existing = frappe.db.exists("Bank Transaction", filters)
+		if existing:
+			return existing
+	if reference_number:
+		filters.pop("transaction_id", None)
+		filters.update(
+			{
+				"reference_number": reference_number,
+				"date": date,
+				"deposit": flt(deposit),
+				"withdrawal": flt(withdrawal),
+			}
+		)
+		return frappe.db.exists("Bank Transaction", filters)
+	return None
+
+
+def _create_bank_transaction(bank_account, row):
+	_check_perm("Bank Transaction", "create")
+	date = row.get("date") or row.get("transaction_date") or row.get("value_date")
+	deposit = flt(row.get("deposit") or row.get("credit") or 0)
+	withdrawal = flt(row.get("withdrawal") or row.get("debit") or 0)
+	transaction_id = row.get("transaction_id") or row.get("id") or row.get("utr")
+	reference_number = row.get("reference_number") or row.get("reference") or row.get("utr")
+	if not date:
+		frappe.throw(_("SBI transaction row is missing transaction date"))
+	if deposit <= 0 and withdrawal <= 0:
+		frappe.throw(_("SBI transaction row must have deposit or withdrawal amount"))
+	existing = _bank_transaction_exists(bank_account, transaction_id, reference_number, date, deposit, withdrawal)
+	if existing:
+		return {"name": existing, "created": False}
+
+	doc = frappe.new_doc("Bank Transaction")
+	doc.bank_account = bank_account
+	doc.date = date
+	doc.deposit = deposit
+	doc.withdrawal = withdrawal
+	doc.description = row.get("description") or row.get("narration") or row.get("remarks")
+	doc.reference_number = reference_number
+	doc.transaction_id = transaction_id
+	doc.transaction_type = row.get("transaction_type") or row.get("type")
+	doc.bank_party_name = row.get("bank_party_name") or row.get("party_name")
+	doc.insert()
+	doc.submit()
+	return {"name": doc.name, "created": True}
+
+
+def _read_path(data, path, default=None):
+	if not path:
+		return data
+	value = data
+	for part in str(path).split("."):
+		if isinstance(value, dict):
+			value = value.get(part)
+		elif isinstance(value, list) and part.isdigit():
+			value = value[cint(part)] if cint(part) < len(value) else None
+		else:
+			return default
+		if value is None:
+			return default
+	return value
+
+
+def _map_sbi_transaction(row, field_map):
+	if not field_map:
+		return row
+	return {target: _read_path(row, source) for target, source in field_map.items()}
+
+
+def _fetch_sbi_transactions(bank_account, from_date, to_date):
+	"""Fetch live SBI transactions using site_config.json mapping.
+
+	Expected site_config key: sbi_bank_api with endpoint, optional method,
+	headers, token, account_number_by_bank_account, transactions_path,
+	closing_balance_path and field_map.
+	"""
+	# SBI sync integration disabled.
+	frappe.throw(_("SBI bank sync has been disabled."))
+	return {"transactions": [], "closing_balance": None}
+
+
+@frappe.whitelist()
+def sync_sbi_bank_transactions(bank_account, from_date, to_date):
+	# SBI sync endpoint disabled
+	frappe.throw(_("SBI bank sync endpoint has been disabled."))
 
 
 @frappe.whitelist()

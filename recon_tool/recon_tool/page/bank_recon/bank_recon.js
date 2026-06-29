@@ -35,7 +35,14 @@ recon_tool.BankReconWorkspace = class BankReconWorkspace {
 				from_date: frappe.datetime.add_months(frappe.datetime.get_today(), -1),
 				to_date: frappe.datetime.get_today(),
 				status: "unmatched",
-				search: ""
+				search: "",
+				statement_closing_balance: ""
+			},
+			balances: {
+				account_opening_balance: 0,
+				erp_closing_balance: 0,
+				statement_closing_balance: null,
+				difference: null
 			},
 			pagination: {
 				start: 0,
@@ -54,7 +61,7 @@ recon_tool.BankReconWorkspace = class BankReconWorkspace {
 		this.set_defaults();
 		this.load_companies();
 		this.render_empty_context();
-		this.update_entry_type_options("Payment Entry");
+		this.update_entry_type_options();
 		this.render_dynamic_controls();
 	}
 
@@ -91,7 +98,32 @@ recon_tool.BankReconWorkspace = class BankReconWorkspace {
 							<label>${__("Search")}</label>
 							<input id="rt-search" type="search" class="input-sm" placeholder="${__("Narration, reference, amount")}">
 						</div>
-						<button class="btn btn-primary btn-sm" id="rt-fetch">${__("Fetch")}</button>
+						<div class="rt-control">
+							<label>${__("Statement Closing")}</label>
+							<input id="rt-statement-closing" type="number" step="0.01" class="input-sm" placeholder="${__("Bank balance")}">
+						</div>
+						<div class="rt-fetch-actions">
+							<button class="btn btn-primary btn-sm" id="rt-fetch">${__("Fetch")}</button>
+						</div>
+					</div>
+
+					<div class="rt-balance-card">
+						<div>
+							<span>${__("Account Opening Balance")}</span>
+							<strong id="rt-opening-balance">0.00</strong>
+						</div>
+						<div>
+							<span>${__("Closing Balance as per Bank Statement")}</span>
+							<strong id="rt-statement-balance">0.00</strong>
+						</div>
+						<div>
+							<span>${__("Closing Balance as per ERP")}</span>
+							<strong id="rt-erp-balance">0.00</strong>
+						</div>
+						<div>
+							<span>${__("Difference")}</span>
+							<strong id="rt-balance-difference" class="rt-difference-ok">0.00</strong>
+						</div>
 					</div>
 
 					<div class="rt-summary">
@@ -135,7 +167,6 @@ recon_tool.BankReconWorkspace = class BankReconWorkspace {
 						<button class="rt-tab active" data-panel="suggestions">${__("Suggested Matches")}</button>
 						<button class="rt-tab" data-panel="voucher">${__("Create Voucher")}</button>
 						<button class="rt-tab" data-panel="invoice">${__("Match Invoice")}</button>
-						<button class="rt-tab" data-panel="split">${__("Split")}</button>
 					</div>
 					<div class="rt-panel" data-panel-body="suggestions">
 						<div class="rt-panel-head">
@@ -162,7 +193,6 @@ recon_tool.BankReconWorkspace = class BankReconWorkspace {
 						<div class="rt-voucher-types">
 							<button class="rt-voucher-type active" data-voucher="Payment Entry">${__("Payment")}</button>
 							<button class="rt-voucher-type" data-voucher="Journal Entry">${__("Journal")}</button>
-							<button class="rt-voucher-type" data-voucher="Expense">${__("Expense")}</button>
 						</div>
 						<div class="rt-form">
 							<div class="rt-form-row rt-entry-type-row">
@@ -258,21 +288,6 @@ recon_tool.BankReconWorkspace = class BankReconWorkspace {
 						</div>
 						<div id="rt-invoices" class="rt-suggestions"></div>
 					</div>
-
-					<div class="rt-panel hidden" data-panel-body="split">
-						<div class="rt-panel-head">
-							<div>
-								<div class="rt-title">${__("Split Transaction")}</div>
-								<div class="rt-subtitle">${__("Prepare split rows, then create vouchers for each portion")}</div>
-							</div>
-							<button class="btn btn-default btn-sm" id="rt-add-split">${__("Add Row")}</button>
-						</div>
-						<div id="rt-splits" class="rt-splits"></div>
-						<div class="rt-panel-footer">
-							<div>${__("Split Total")}: <strong id="rt-split-total">0.00</strong></div>
-							<button class="btn btn-primary btn-sm" id="rt-validate-split">${__("Validate Split")}</button>
-						</div>
-					</div>
 				</aside>
 			</div>
 		`);
@@ -285,6 +300,7 @@ recon_tool.BankReconWorkspace = class BankReconWorkspace {
 		this.$to_date = this.wrapper.find("#rt-to-date");
 		this.$status = this.wrapper.find("#rt-status");
 		this.$search = this.wrapper.find("#rt-search");
+		this.$statement_closing = this.wrapper.find("#rt-statement-closing");
 		this.$transactions = this.wrapper.find("#rt-transactions");
 		this.$context = this.wrapper.find("#rt-context");
 		this.$suggestions = this.wrapper.find("#rt-suggestions");
@@ -305,7 +321,6 @@ recon_tool.BankReconWorkspace = class BankReconWorkspace {
 		this.$transfer_to_bank = this.wrapper.find("#rt-transfer-to-bank");
 		this.$contra_debit = this.wrapper.find("#rt-contra-debit-account");
 		this.$contra_credit = this.wrapper.find("#rt-contra-credit-account");
-		this.$splits = this.wrapper.find("#rt-splits");
 	}
 
 	bind_events() {
@@ -314,6 +329,7 @@ recon_tool.BankReconWorkspace = class BankReconWorkspace {
 		this.wrapper.on("change", "#rt-bank-account", () => this.on_bank_account_change());
 		this.wrapper.on("change", "#rt-from-date, #rt-to-date, #rt-status", () => this.reset_and_fetch());
 		this.wrapper.on("input", "#rt-search", this.debounce(() => this.reset_and_fetch(), 300));
+		this.wrapper.on("input", "#rt-statement-closing", this.debounce(() => this.fetch_balance_summary(), 250));
 		this.wrapper.on("click", "#rt-fetch", () => this.reset_and_fetch());
 		this.wrapper.on("click", "#rt-prev", () => this.change_page(-1));
 		this.wrapper.on("click", "#rt-next", () => this.change_page(1));
@@ -330,10 +346,6 @@ recon_tool.BankReconWorkspace = class BankReconWorkspace {
 		this.wrapper.on("change", "#rt-party-type", () => this.on_party_type_change());
 		this.wrapper.on("click", "#rt-create-voucher", () => this.create_voucher());
 		this.wrapper.on("input", "#rt-invoice-search", this.debounce(() => this.fetch_invoices(), 300));
-		this.wrapper.on("click", "#rt-add-split", () => this.add_split_row());
-		this.wrapper.on("input", ".rt-split-amount", () => this.update_split_total());
-		this.wrapper.on("click", ".rt-remove-split", (event) => $(event.currentTarget).closest(".rt-split-row").remove() && this.update_split_total());
-		this.wrapper.on("click", "#rt-validate-split", () => this.validate_split());
 		$(document).off("keydown.bank_recon").on("keydown.bank_recon", (event) => this.on_keydown(event));
 	}
 
@@ -341,6 +353,7 @@ recon_tool.BankReconWorkspace = class BankReconWorkspace {
 		this.$from_date.val(this.state.filters.from_date);
 		this.$to_date.val(this.state.filters.to_date);
 		this.$status.val(this.state.filters.status);
+		this.$statement_closing.val(this.state.filters.statement_closing_balance);
 		this.$voucher_date.val(this.state.filters.to_date);
 	}
 
@@ -421,12 +434,14 @@ recon_tool.BankReconWorkspace = class BankReconWorkspace {
 			from_date: this.$from_date.val(),
 			to_date: this.$to_date.val(),
 			status: this.$status.val(),
-			search: this.$search.val()
+			search: this.$search.val(),
+			statement_closing_balance: this.$statement_closing.val()
 		};
 	}
 
 	refresh() {
 		this.fetch_transactions();
+		this.fetch_balance_summary();
 		if (this.state.selected) {
 			this.fetch_suggestions();
 		}
@@ -436,6 +451,7 @@ recon_tool.BankReconWorkspace = class BankReconWorkspace {
 		this.sync_filters();
 		if (!this.state.filters.bank_account) {
 			this.render_transactions_empty(__("Select a bank account to begin."));
+			this.render_balance_summary({});
 			return;
 		}
 		this.$transactions.html(this.skeleton_rows(8));
@@ -456,8 +472,42 @@ recon_tool.BankReconWorkspace = class BankReconWorkspace {
 				this.state.pagination.total = data.total || 0;
 				this.render_table();
 				this.render_summary(data);
+				this.fetch_balance_summary();
 			}
 		});
+	}
+
+	fetch_balance_summary() {
+		this.sync_filters();
+		if (!this.state.filters.bank_account) {
+			this.render_balance_summary({});
+			return;
+		}
+		frappe.call({
+			method: "recon_tool.api.bank_recon.get_balance_summary",
+			args: {
+				bank_account: this.state.filters.bank_account,
+				from_date: this.state.filters.from_date,
+				to_date: this.state.filters.to_date,
+				statement_closing_balance: this.state.filters.statement_closing_balance
+			},
+			callback: (r) => this.render_balance_summary(r.message || {})
+		});
+	}
+
+	render_balance_summary(data) {
+		this.state.balances = Object.assign(this.state.balances, data || {});
+		const statement = data.statement_closing_balance == null ? flt(this.$statement_closing.val()) : data.statement_closing_balance;
+		const difference = data.difference == null && this.$statement_closing.val() !== ""
+			? statement - flt(data.erp_closing_balance)
+			: data.difference;
+		this.wrapper.find("#rt-opening-balance").text(this.money(data.account_opening_balance || 0));
+		this.wrapper.find("#rt-statement-balance").text(this.$statement_closing.val() === "" ? __("Enter balance") : this.money(statement));
+		this.wrapper.find("#rt-erp-balance").text(this.money(data.erp_closing_balance || 0));
+		const $difference = this.wrapper.find("#rt-balance-difference");
+		$difference.text(difference == null ? __("Enter balance") : this.money(difference));
+		$difference.toggleClass("rt-difference-ok", Math.abs(flt(difference)) < 0.005);
+		$difference.toggleClass("rt-difference-alert", Math.abs(flt(difference)) >= 0.005);
 	}
 
 	render_summary(data) {
@@ -572,7 +622,7 @@ recon_tool.BankReconWorkspace = class BankReconWorkspace {
 		this.$context.html(`
 			<div class="rt-context-empty">
 				<div class="rt-title">${__("Select a transaction")}</div>
-				<p>${__("Choose a bank line to see suggested ERP matches, create vouchers, split amounts, and reconcile from one panel.")}</p>
+				<p>${__("Choose a bank line to see suggested ERP matches, create vouchers, match invoices, and reconcile from one panel.")}</p>
 			</div>
 		`);
 		this.$suggestions.html(`<div class="rt-empty">${__("Suggestions appear after selecting a transaction.")}</div>`);
@@ -688,11 +738,11 @@ recon_tool.BankReconWorkspace = class BankReconWorkspace {
 		this.set_voucher_type(voucher);
 		if (action === "Internal Transfer") {
 			this.$entry_type.val("Internal Transfer");
-			this.render_dynamic_controls("Payment Entry");
+			this.render_dynamic_controls();
 		}
 		if (action === "Contra Entry") {
 			this.$entry_type.val("Contra Entry");
-			this.render_dynamic_controls("Journal Entry");
+			this.render_dynamic_controls();
 		}
 		if (action === "Supplier Payment") {
 			this.$party_type.val("Supplier");
@@ -748,14 +798,14 @@ recon_tool.BankReconWorkspace = class BankReconWorkspace {
 	}
 
 	set_voucher_type(type) {
-		this.state.voucher_type = type === "Expense" ? "Journal Entry" : type;
+		this.state.voucher_type = type;
 		this.wrapper.find(".rt-voucher-type").removeClass("active");
 		this.wrapper.find(`.rt-voucher-type[data-voucher="${type}"]`).addClass("active");
-		this.update_entry_type_options(type);
-		this.render_dynamic_controls(type);
+		this.update_entry_type_options();
+		this.render_dynamic_controls();
 	}
 
-	render_dynamic_controls(tab_type) {
+	render_dynamic_controls() {
 		const voucher_type = this.state.voucher_type;
 		const entry_type = this.$entry_type.val();
 		const uses_internal_transfer = voucher_type === "Payment Entry" && entry_type === "Internal Transfer";
@@ -775,12 +825,12 @@ recon_tool.BankReconWorkspace = class BankReconWorkspace {
 			this.render_party_control();
 		}
 		if (uses_account) {
-			this.render_account_control(tab_type === "Expense");
+			this.render_account_control();
 		}
-		this.update_voucher_button_label(tab_type);
+		this.update_voucher_button_label();
 	}
 
-	update_voucher_button_label(tab_type) {
+	update_voucher_button_label() {
 		let label = __("Create & Reconcile");
 		if (this.state.voucher_type === "Payment Entry" && this.$entry_type.val() === "Internal Transfer") {
 			label = __("Create Transfer & Reconcile");
@@ -790,8 +840,8 @@ recon_tool.BankReconWorkspace = class BankReconWorkspace {
 		this.wrapper.find("#rt-create-voucher").text(label);
 	}
 
-	update_entry_type_options(tab_type) {
-		const voucher_type = tab_type === "Expense" ? "Journal Entry" : this.state.voucher_type;
+	update_entry_type_options() {
+		const voucher_type = this.state.voucher_type;
 		let options = [];
 		if (voucher_type === "Payment Entry") {
 			options = ["Receive", "Pay", "Internal Transfer"];
@@ -813,7 +863,7 @@ recon_tool.BankReconWorkspace = class BankReconWorkspace {
 	}
 
 	on_entry_type_change() {
-		this.render_dynamic_controls(this.wrapper.find(".rt-voucher-type.active").data("voucher"));
+		this.render_dynamic_controls();
 	}
 
 	on_party_type_change() {
@@ -846,7 +896,7 @@ recon_tool.BankReconWorkspace = class BankReconWorkspace {
 		});
 	}
 
-	render_account_control(expense_only) {
+	render_account_control() {
 		if (this.account_control) {
 			this.account_control.$wrapper.remove();
 			this.account_control = null;
@@ -859,7 +909,7 @@ recon_tool.BankReconWorkspace = class BankReconWorkspace {
 				fieldname: "rt_counterparty_account",
 				label: __("Counterparty Account"),
 				options: "Account",
-				placeholder: expense_only ? __("Select expense account") : __("Select counterparty account"),
+				placeholder: __("Select counterparty account"),
 				get_query: () => ({
 					filters: {
 						company: this.$company.val(),
@@ -955,7 +1005,7 @@ recon_tool.BankReconWorkspace = class BankReconWorkspace {
 		} else {
 			this.$party_type.val("Customer");
 		}
-		this.update_entry_type_options(this.wrapper.find(".rt-voucher-type.active").data("voucher"));
+		this.update_entry_type_options();
 		this.render_dynamic_controls();
 	}
 
@@ -1091,44 +1141,6 @@ recon_tool.BankReconWorkspace = class BankReconWorkspace {
 		});
 	}
 
-	add_split_row() {
-		this.$splits.append(`
-			<div class="rt-split-row">
-				<input class="input-sm rt-split-label" placeholder="${__("Purpose / memo")}">
-				<input class="input-sm rt-split-amount" type="number" step="0.01" placeholder="${__("Amount")}">
-				<button class="btn btn-default btn-sm rt-remove-split">${__("Remove")}</button>
-			</div>
-		`);
-	}
-
-	update_split_total() {
-		let total = 0;
-		this.wrapper.find(".rt-split-amount").each((_, input) => total += flt($(input).val()));
-		this.wrapper.find("#rt-split-total").text(this.money(total));
-	}
-
-	validate_split() {
-		if (!this.state.selected) {
-			frappe.show_alert({ message: __("Select a transaction first."), indicator: "orange" });
-			return;
-		}
-		const splits = [];
-		this.wrapper.find(".rt-split-row").each((_, row) => {
-			splits.push({
-				memo: $(row).find(".rt-split-label").val(),
-				amount: flt($(row).find(".rt-split-amount").val())
-			});
-		});
-		frappe.call({
-			method: "recon_tool.api.bank_recon.split_transaction",
-			args: {
-				bank_transaction: this.state.selected.name,
-				splits: JSON.stringify(splits)
-			},
-			callback: (r) => frappe.show_alert({ message: r.message?.message || __("Split validated."), indicator: "blue" })
-		});
-	}
-
 	auto_reconcile(only_selected) {
 		const names = only_selected ? Array.from(this.state.selected_rows) : null;
 		if (only_selected && !names.length) {
@@ -1161,6 +1173,8 @@ recon_tool.BankReconWorkspace = class BankReconWorkspace {
 			}
 		});
 	}
+
+
 
 	auto_internal_transfers() {
 		this.sync_filters();
@@ -1221,8 +1235,8 @@ recon_tool.BankReconWorkspace = class BankReconWorkspace {
 		} else if (event.key.toLowerCase() === "a") {
 			event.preventDefault();
 			this.auto_reconcile(false);
-		} else if (event.key >= "1" && event.key <= "4") {
-			const panels = ["suggestions", "voucher", "invoice", "split"];
+		} else if (event.key >= "1" && event.key <= "3") {
+			const panels = ["suggestions", "voucher", "invoice"];
 			this.switch_panel(panels[cint(event.key) - 1]);
 		}
 	}
